@@ -1,31 +1,37 @@
-import socket
+import asyncio
 import cv2
 import pickle
 import struct
+import websockets
 
-# Socket setup
-server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server_socket.bind(('0.0.0.0', 9999))
-server_socket.listen(5)
-print("Server listening on port 9999")
+async def webcam_stream(websocket, path):
+    print(f"Client connected: {path}")
+    cap = cv2.VideoCapture(0)  # Open the default camera
 
-# Accept a client connection
-client_socket, addr = server_socket.accept()
-print('Connected to:', addr)
+    try:
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                print("Failed to grab frame. Exiting.")
+                break
 
-cap = cv2.VideoCapture(0)
+            # Serialize frame using pickle
+            data = pickle.dumps(frame)
 
-while cap.isOpened():
-    ret, frame = cap.read()
-    if not ret:
-        break
-    
-    # Serialize frame using pickle
-    data = pickle.dumps(frame)
-    
-    # Send frame size and frame data
-    client_socket.sendall(struct.pack("L", len(data)) + data)
+            # Send the serialized frame size and frame data
+            message = struct.pack("L", len(data)) + data
+            await websocket.send(message)
 
-cap.release()
-client_socket.close()
-server_socket.close()
+    except Exception as e:
+        print(f"Error: {e}")
+
+    finally:
+        cap.release()
+        print("Camera released and server stopped.")
+
+# Start the WebSocket server
+start_server = websockets.serve(webcam_stream, "0.0.0.0", 9999)
+
+print("WebSocket server listening on port 9999")
+asyncio.get_event_loop().run_until_complete(start_server)
+asyncio.get_event_loop().run_forever()
